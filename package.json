@@ -1,19 +1,16 @@
 {
-  "name": "kset-by-kino-holdings",
+  "name": "dispatch-ai",
   "version": "1.0.0",
-  "description": "",
+  "description": "AI SMS Agency Backend",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.126.0",
-    "dotenv": "^17.4.2",
-    "express": "^5.2.1",
-    "twilio": "^6.1.1"
+    "@anthropic-ai/sdk": "^0.32.1",
+    "axios": "^1.7.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "ioredis": "^5.4.1"
   }
 }
