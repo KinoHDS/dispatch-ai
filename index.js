@@ -522,6 +522,7 @@ async function processInbound({ contactId, locationId, message, messageId }) {
 // -------------------------------------------------------------------------------------
 
 const app = express();
+
 app.set('trust proxy', true);
 app.disable('x-powered-by');
 app.use(express.json({ limit: '256kb' }));
@@ -541,12 +542,11 @@ app.post('/webhook', verifyWebhookSecret, (req, res) => {
   const body = req.body || {};
   // GHL workflow webhooks vary in shape: flat custom fields, or nested contact/location
   // objects. Accept the common variants; you control these keys in the workflow webhook.
-  const contactId = body.contact_id || body.contactId || body.contact?.id;
+  const contactId = body.contact_id || body.contactId || body.contact?.id || body.customData?.contact_id;
   const message = body.message || body.body || body.Body || body.customData?.message;
-  const locationId = body.location_id || body.locationId || body.location?.id;
+  const locationId = body.location_id || body.locationId || body.location?.id || body.customData?.location_id;
   // If GHL omits a message id we generate one; that message simply won't be de-duplicated.
-  const messageId = body.message_id || body.messageId || body.customData?.message_id || crypto.randomUUID();
-
+const messageId = body.message_id || body.messageId || body.customData?.message_id || crypto.randomUUID();
   if (!contactId || typeof message !== 'string' || !message.trim() || !locationId) {
     log('warn', 'Webhook missing required fields', {
       hasContactId: Boolean(contactId), hasMessage: Boolean(message), hasLocationId: Boolean(locationId),
