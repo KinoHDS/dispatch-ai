@@ -563,7 +563,7 @@ app.post('/webhook', verifyWebhookSecret, (req, res) => {
     processInbound({
       contactId: String(contactId),
       locationId: String(locationId),
-      message: cleanMessage,
+      message: message,
       messageId: String(messageId),
     }).catch((err) => log('error', 'processInbound crashed', {
       contactId, error: err && err.stack ? err.stack : String(err),
