@@ -540,22 +540,22 @@ app.get('/health', (req, res) => {
 
 app.post('/webhook', verifyWebhookSecret, (req, res) => {
   const body = req.body || {};
-  // GHL workflow webhooks vary in shape: flat custom fields, or nested contact/location
-  // objects. Accept the common variants; you control these keys in the workflow webhook.
+
   const contactId = body.contact_id || body.contactId || body.contact?.id || body.customData?.contact_id;
-  const message = body.message || body.body || body.Body || body.customData?.message;
   const locationId = body.location_id || body.locationId || body.location?.id || body.customData?.location_id;
-  // If GHL omits a message id we generate one; that message simply won't be de-duplicated.
-const messageId = body.message_id || body.messageId || body.customData?.message_id || crypto.randomUUID();
+  const messageId = body.message_id || body.messageId || body.customData?.message_id || crypto.randomUUID();
+
+  let message = body.message || body.body || body.Body || body.customData?.message;
+  if (typeof message === 'object' && message !== null) {
+    message = message.body || message.text || message.message || JSON.stringify(message);
+  }
+
   if (!contactId || typeof message !== 'string' || !message.trim() || !locationId) {
     log('warn', 'Webhook missing required fields', {
       hasContactId: Boolean(contactId), hasMessage: Boolean(message), hasLocationId: Boolean(locationId),
     });
     return res.status(400).json({ error: 'Missing contact_id, message, or location_id' });
   }
-
-  const cleanMessage = message.trim().slice(0, MAX_MSG_CHARS);
-
   // Respond immediately so GHL marks the webhook delivered and does not retry the payload.
   res.status(200).json({ status: 'accepted' });
 
