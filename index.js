@@ -55,10 +55,18 @@ async function sendGHLMessage(apiToken, contactId, phone, messageText) {
 
 app.post('/webhook/handler', async (req, res) => {
     try {
-        
         console.log("Incoming Webhook Data:", req.body);
 
-        const { locationId, contactId, phone, message } = req.body;
+        // Pull from customData object sent by GHL
+        const payload = req.body.customData || req.body;
+
+        const locationId = payload.locationId || req.body.location?.id;
+        const contactId = payload.contactId || req.body.contact_id;
+        const phone = payload.phone || req.body.phone;
+        const message = typeof payload.message === 'string' ? payload.message : req.body.message?.body;
+
+        console.log("Extracted Data:", { locationId, contactId, phone, message });
+
         if (!locationId) return res.status(400).json({ error: 'Missing locationId' });
 
         const config = getLocationConfig(locationId);
