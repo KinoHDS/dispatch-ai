@@ -24,7 +24,7 @@ async function callClaude(systemPrompt, userMessage) {
             'content-type': 'application/json'
         },
         body: JSON.stringify({
-            model: 'claude-3-5-sonnet-20241022',
+            model: 'claude-3-5-sonnet-latest', // <-- CHANGED HERE
             max_tokens: 300,
             system: systemPrompt,
             messages: [{ role: 'user', content: userMessage }]
@@ -32,7 +32,6 @@ async function callClaude(systemPrompt, userMessage) {
     });
     const data = await response.json();
     
-    // THIS LINE WILL PRINT THE REAL ANTHROPIC ERROR TO YOUR LOGS:
     if (!data.content || !data.content[0]) {
         console.error("Claude API Error Response:", data);
         throw new Error('Claude API Error: ' + JSON.stringify(data));
