@@ -31,7 +31,13 @@ async function callClaude(systemPrompt, userMessage) {
         })
     });
     const data = await response.json();
-    if (!data.content || !data.content[0]) throw new Error('Claude API Error');
+    
+    // THIS LINE WILL PRINT THE REAL ANTHROPIC ERROR TO YOUR LOGS:
+    if (!data.content || !data.content[0]) {
+        console.error("Claude API Error Response:", data);
+        throw new Error('Claude API Error: ' + JSON.stringify(data));
+    }
+    
     return data.content[0].text;
 }
 
