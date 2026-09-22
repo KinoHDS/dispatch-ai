@@ -55,6 +55,9 @@ async function sendGHLMessage(apiToken, contactId, phone, messageText) {
 
 app.post('/webhook/handler', async (req, res) => {
     try {
+        
+        console.log("Incoming Webhook Data:", req.body);
+
         const { locationId, contactId, phone, message } = req.body;
         if (!locationId) return res.status(400).json({ error: 'Missing locationId' });
 
