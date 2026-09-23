@@ -24,21 +24,29 @@ async function callClaude(systemPrompt, userMessage) {
             'content-type': 'application/json'
         },
         body: JSON.stringify({
-            model: 'claude-3-5-sonnet-20241022', // <-- The verified official model
+            model: 'claude-sonnet-5',
             max_tokens: 300,
+            thinking: { type: 'disabled' },
             system: systemPrompt,
             messages: [{ role: 'user', content: userMessage }]
         })
     });
     const data = await response.json();
-    
-    if (!data.content || !data.content[0]) {
+
+    const text = (data.content || [])
+        .filter(block => block.type === 'text')
+        .map(block => block.text)
+        .join('')
+        .trim();
+
+    if (!text) {
         console.error("Claude API Error Response:", data);
         throw new Error('Claude API Error: ' + JSON.stringify(data));
     }
-    
-    return data.content[0].text;
+
+    return text;
 }
+
 async function sendGHLMessage(apiToken, contactId, phone, messageText) {
     const response = await fetch('https://services.leadconnectorhq.com/conversations/messages', {
         method: 'POST',
