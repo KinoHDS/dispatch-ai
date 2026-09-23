@@ -1,16 +1,12 @@
 {
-  "name": "dispatch-ai",
+  "name": "ai-dispatcher",
   "version": "1.0.0",
-  "description": "AI SMS Agency Backend",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.32.1",
-    "axios": "^1.7.0",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "ioredis": "^5.4.1"
+    "express": "^4.18.2"
   }
 }
