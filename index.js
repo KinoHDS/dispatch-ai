@@ -24,7 +24,7 @@ async function callClaude(systemPrompt, userMessage) {
             'content-type': 'application/json'
         },
         body: JSON.stringify({
-            model: 'claude-3-5-sonnet-latest', // <-- CHANGED HERE
+            model: 'claude-3-5-sonnet-20241022', // <-- The verified official model
             max_tokens: 300,
             system: systemPrompt,
             messages: [{ role: 'user', content: userMessage }]
@@ -39,7 +39,6 @@ async function callClaude(systemPrompt, userMessage) {
     
     return data.content[0].text;
 }
-
 async function sendGHLMessage(apiToken, contactId, phone, messageText) {
     const response = await fetch('https://services.leadconnectorhq.com/conversations/messages', {
         method: 'POST',
