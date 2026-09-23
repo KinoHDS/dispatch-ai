@@ -5,6 +5,10 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
+const MISSED_CALL_PROMPT = 'The customer just called and nobody could answer. Write the first text message to them: briefly apologize for missing their call and ask what service they need help with.';
+const FALLBACK_REPLY = "Thanks for reaching out! Our team will text you back shortly.";
+const MISSED_CALL_FALLBACK = "Sorry we missed your call! Text us what you need and we'll get right back to you.";
+
 const getLocationConfig = (locationId) => {
     try {
         const keys = JSON.parse(process.env.LOCATION_KEYS || '{}');
@@ -47,52 +51,85 @@ async function callClaude(systemPrompt, userMessage) {
     return text;
 }
 
-async function sendGHLMessage(apiToken, contactId, phone, messageText) {
+async function sendGHLMessage(apiToken, contactId, messageText) {
+    const token = String(apiToken).replace(/^bearer\s+/i, '');
     const response = await fetch('https://services.leadconnectorhq.com/conversations/messages', {
         method: 'POST',
         headers: {
-            'Authorization': `Bearer ${apiToken}`,
+            'Authorization': `Bearer ${token}`,
             'Version': '2021-07-28',
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({
             type: 'SMS',
             contactId: contactId,
-            phone: phone,
             message: messageText
         })
     });
-    return await response.json();
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new Error(`GHL send failed (${response.status}): ${JSON.stringify(data)}`);
+    }
+    return data;
 }
 
-app.post('/webhook/handler', async (req, res) => {
-    try {
-        console.log("Incoming Webhook Data:", req.body);
+// GHL fills empty merge fields with the text "undefined" — treat that as no text.
+function cleanText(value) {
+    if (typeof value !== 'string') return '';
+    const text = value.trim();
+    if (!text || text === 'undefined' || text === 'null') return '';
+    return text;
+}
 
-        // Pull from customData object sent by GHL
-        const payload = req.body.customData || req.body;
+async function handleWebhook(body) {
+    const payload = body.customData || {};
 
-        const locationId = payload.locationId || req.body.location?.id;
-        const contactId = payload.contactId || req.body.contact_id;
-        const phone = payload.phone || req.body.phone;
-        const message = typeof payload.message === 'string' ? payload.message : req.body.message?.body;
+    const locationId = payload.locationId || body.location?.id;
+    const contactId = payload.contactId || body.contact_id;
+    const message = cleanText(payload.message) || cleanText(body.message?.body);
+    const eventType = String(payload.event_type || body.event_type || '').trim().toLowerCase();
+    const isMissedCall = eventType === 'missed_call';
 
-        console.log("Extracted Data:", { locationId, contactId, phone, message });
+    console.log("Extracted Data:", { locationId, contactId, message, isMissedCall });
 
-        if (!locationId) return res.status(400).json({ error: 'Missing locationId' });
-
-        const config = getLocationConfig(locationId);
-        if (!config) return res.status(404).json({ error: 'No config found' });
-
-        const incomingText = message || "Hi, I missed your call. What service do you need help with today?";
-        const aiReply = await callClaude(config.prompt, incomingText);
-        await sendGHLMessage(config.apiToken, contactId, phone, aiReply);
-
-        res.status(200).json({ success: true, replySent: aiReply });
-    } catch (error) {
-        console.error("Error:", error);
-        res.status(500).json({ error: error.message });
+    if (!isMissedCall && !message) {
+        console.log("Skipping: no message text (not an SMS)");
+        return;
     }
+    if (!locationId || !contactId) {
+        console.error("Skipping: missing locationId or contactId");
+        return;
+    }
+
+    const config = getLocationConfig(locationId);
+    if (!config || !config.apiToken || !config.prompt) {
+        console.error(`No usable config for location ${locationId} in LOCATION_KEYS (needs "prompt" and "apiToken")`);
+        return;
+    }
+
+    let aiReply;
+    try {
+        aiReply = await callClaude(config.prompt, isMissedCall ? MISSED_CALL_PROMPT : message);
+        console.log("Claude reply:", aiReply);
+    } catch (error) {
+        console.error("Claude failed, sending fallback text:", error.message);
+        aiReply = isMissedCall ? MISSED_CALL_FALLBACK : FALLBACK_REPLY;
+    }
+
+    const result = await sendGHLMessage(config.apiToken, contactId, aiReply);
+    console.log("GHL send OK:", result);
+}
+
+app.post('/webhook/handler', (req, res) => {
+    console.log("Incoming Webhook Data:", req.body);
+
+    // Answer GHL right away so it doesn't time out and resend the webhook.
+    res.status(200).json({ received: true });
+
+    handleWebhook(req.body).catch(error => {
+        console.error("Error:", error.message);
+    });
 });
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
