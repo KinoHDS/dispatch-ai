@@ -89,7 +89,7 @@ async function handleWebhook(body) {
     const contactId = payload.contactId || body.contact_id;
     const message = cleanText(payload.message) || cleanText(body.message?.body);
     const eventType = String(payload.event_type || body.event_type || '').trim().toLowerCase();
-    const isMissedCall = eventType === 'missed_call';
+    const isMissedCall = eventType === 'missed_call' || body.message?.type === 1;
 
     console.log("Extracted Data:", { locationId, contactId, message, isMissedCall });
 
