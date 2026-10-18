@@ -137,6 +137,36 @@ function cleanText(value) {
     return text;
 }
 
+// ---------------- Opt-out ----------------
+function isOptOut(msg = "") {
+    const t = String(msg).trim().toLowerCase().replace(/[^\w\s]/g, "");
+    const words = t.split(/\s+/);
+    const exact = ["stop", "stopall", "unsubscribe", "cancel", "end", "quit", "optout", "opt out"];
+    if (exact.includes(t)) return true;
+    if (/\b(unsubscribe|stop texting|stop messaging|stop contacting|remove me|opt ?out|do not text|dont text|wrong number)\b/.test(t)) return true;
+    if (words[0] === "stop" && words.length <= 3 && !/^stop (by|in|over)\b/.test(t)) return true;
+    return false;
+}
+
+const OPT_OUT_REPLY = "You've been unsubscribed and won't receive more messages.";
+
+async function markDND(apiToken, contactId) {
+    try {
+        const r = await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
+            method: "PUT",
+            headers: {
+                Authorization: `Bearer ${apiToken}`,
+                Version: "2021-07-28",
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ dnd: true }),
+        });
+        console.log("DND set:", contactId, r.status);
+    } catch (err) {
+        console.error("DND failed:", err.message);
+    }
+}
+
 // ---------------- Webhook ----------------
 async function handleWebhook(body) {
     const payload = body.customData || {};
@@ -161,6 +191,14 @@ async function handleWebhook(body) {
     const config = getLocationConfig(locationId);
     if (!config || !config.apiToken || !config.prompt) {
         console.error(`No usable config for location ${locationId} in LOCATION_KEYS (needs "prompt" and "apiToken")`);
+        return;
+    }
+
+    // Opt-out: confirm once, set DND, never reach Claude
+    if (!isMissedCall && isOptOut(message)) {
+        console.log("Opt-out from", contactId, ":", message);
+        await sendGHLMessage(config.apiToken, contactId, OPT_OUT_REPLY);
+        await markDND(config.apiToken, contactId);
         return;
     }
 
