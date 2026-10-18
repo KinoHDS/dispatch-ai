@@ -154,23 +154,118 @@ function isOptIn(msg = "") {
 }
 
 const OPT_OUT_REPLY = "You've been unsubscribed and won't receive more messages. Reply START to resubscribe.";
-const OPT_IN_REPLY = "You're resubscribed. How can we help you today? Reply STOP to unsubscribe.";
+
+const GHL = "https://services.leadconnectorhq.com";
+const TZ = "America/New_York";
+
+function ghlHeaders(apiToken, version = "2021-07-28") {
+    return { Authorization: `Bearer ${apiToken}`, Version: version, "Content-Type": "application/json" };
+}
 
 async function markDND(apiToken, contactId, on = true) {
     try {
-        const r = await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
-            method: "PUT",
-            headers: {
-                Authorization: `Bearer ${apiToken}`,
-                Version: "2021-07-28",
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ dnd: on }),
+        const r = await fetch(`${GHL}/contacts/${contactId}`, {
+            method: "PUT", headers: ghlHeaders(apiToken), body: JSON.stringify({ dnd: on }),
         });
         console.log(`DND ${on ? "on" : "off"}:`, contactId, r.status);
+    } catch (err) { console.error("DND update failed:", err.message); }
+}
+
+async function addTag(apiToken, contactId, tag) {
+    try {
+        const r = await fetch(`${GHL}/contacts/${contactId}/tags`, {
+            method: "POST", headers: ghlHeaders(apiToken), body: JSON.stringify({ tags: [tag] }),
+        });
+        console.log(`Tag "${tag}":`, contactId, r.status);
+    } catch (err) { console.error("Tag failed:", err.message); }
+}
+
+// ---------------- Calendar ----------------
+function fmtSlot(iso) {
+    return new Date(iso).toLocaleString("en-US", {
+        timeZone: TZ, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+    });
+}
+
+async function getFreeSlots(apiToken, calendarId, days = 4) {
+    try {
+        const start = Date.now();
+        const end = start + days * 86400000;
+        const url = `${GHL}/calendars/${calendarId}/free-slots?startDate=${start}&endDate=${end}&timezone=${encodeURIComponent(TZ)}`;
+        const r = await fetch(url, { headers: ghlHeaders(apiToken, "2021-04-15") });
+        const data = await r.json();
+        if (!r.ok) { console.error("Free slots failed:", r.status, data); return []; }
+        const slots = [];
+        for (const v of Object.values(data)) {
+            if (v && Array.isArray(v.slots)) slots.push(...v.slots);
+        }
+        return slots.slice(0, 12);
     } catch (err) {
-        console.error("DND update failed:", err.message);
+        console.error("Free slots error:", err.message);
+        return [];
     }
+}
+
+async function bookAppointment(apiToken, config, locationId, contactId, booking) {
+    try {
+        const mins = config.slotMinutes || 60;
+        const endTime = new Date(new Date(booking.startTime).getTime() + mins * 60000).toISOString();
+        const onsite = booking.onsite && booking.onsite.toLowerCase() !== "same" ? ` | On-site: ${booking.onsite}` : "";
+        const r = await fetch(`${GHL}/calendars/events/appointments`, {
+            method: "POST",
+            headers: ghlHeaders(apiToken, "2021-04-15"),
+            body: JSON.stringify({
+                calendarId: config.calendarId,
+                locationId,
+                contactId,
+                startTime: booking.startTime,
+                endTime,
+                title: `${booking.service} - ${booking.name} - ${booking.address}${onsite}`,
+                address: booking.address,
+                appointmentStatus: "confirmed",
+            }),
+        });
+        const data = await r.json().catch(() => ({}));
+        console.log("Booking result:", r.status, data);
+        return r.ok;
+    } catch (err) {
+        console.error("Booking error:", err.message);
+        return false;
+    }
+}
+
+function bookingRules(slots, config = {}) {
+    const list = slots.length ? slots.map(s => `- ${fmtSlot(s)} => ${s}`).join("\n") : "NONE";
+    const fee = config.emergencyFee
+        ? `Emergency/same-day service has a ${config.emergencyFee} emergency fee. Tell them this BEFORE booking an emergency and get a clear yes.`
+        : `If they ask about emergency pricing, say the owner will confirm the rate.`;
+    const urgentBooking = config.urgentAutoBook
+        ? `Offer the EARLIEST open time and book it once they confirm the fee.`
+        : `Do NOT book emergencies. Collect name, address, and the problem, then say: "I've marked this URGENT and sent it straight to the owner. Expect a call in the next few minutes."`;
+
+    return `
+BOOKING RULES:
+Never send links. Never invent times. Only offer times from OPEN TIMES below (show the friendly time, never the code).
+OPEN TIMES:
+${list}
+
+Each booking needs: service needed, customer name, SERVICE ADDRESS, and a chosen time from the list.
+ADDRESSES: Ask for the service address on EVERY booking. Never assume it's the same as a past booking or anything earlier in the chat. If they gave an address before, ask: "Same address as before (<address>) or a different one?"
+BOOKING FOR SOMEONE ELSE: If the job is for another person or property (tenant, parent, rental, business), also get the on-site contact's name and phone. If the texter will be there themselves, use "same".
+Offer 2-3 open times at once. Keep it fast.
+When you have everything, reply with ONLY this and nothing else:
+##BOOK|<exact value after => for chosen time>|<service>|<customer name>|<full service address>|<on-site name and phone, or same>##
+After a booking is confirmed, they may book more jobs at other addresses. Handle each one the same way, one at a time.
+
+If OPEN TIMES is NONE or nothing works for them: collect name, address, and service, say the owner will text or call to confirm a time, and end with ##BOOKING##
+
+EMERGENCIES (no heat, burst/leaking pipe, flooding, sewage backup, plowed in, electrical sparks):
+Get name, address, and problem in as few messages as possible.
+${fee}
+${urgentBooking}
+Add ##URGENT## at the very end of every reply about an emergency.
+If they mention a gas smell, carbon monoxide alarm, or fire: FIRST tell them to leave the building and call 911 or the gas company, then add ##URGENT##.
+Never show ## tags in normal conversation; only at the very end.`;
 }
 
 // ---------------- Webhook ----------------
@@ -200,21 +295,28 @@ async function handleWebhook(body) {
         return;
     }
 
-    // Opt back in
+    // Opt back in: carrier/GHL send the confirmation, so stay quiet
     if (!isMissedCall && isOptIn(message)) {
         console.log("Opt-in from", contactId);
         await markDND(config.apiToken, contactId, false);
-        await sendGHLMessage(config.apiToken, contactId, OPT_IN_REPLY);
         return;
     }
 
-    // Opt out
+    // Opt out: confirm once if possible, ALWAYS set DND
     if (!isMissedCall && isOptOut(message)) {
         console.log("Opt-out from", contactId, ":", message);
-        await sendGHLMessage(config.apiToken, contactId, OPT_OUT_REPLY);
+        try {
+            await sendGHLMessage(config.apiToken, contactId, OPT_OUT_REPLY);
+        } catch (err) {
+            console.log("Opt-out confirmation skipped (already unsubscribed by carrier/GHL)");
+        }
         await markDND(config.apiToken, contactId, true);
         return;
     }
+
+    // Live open times from the owner's GHL calendar
+    const slots = config.calendarId ? await getFreeSlots(config.apiToken, config.calendarId) : [];
+    console.log(`Open slots: ${slots.length}`);
 
     const key = convoKey(locationId, contactId);
     addToHistory(key, 'user', isMissedCall ? MISSED_CALL_NOTE : message);
@@ -223,12 +325,42 @@ async function handleWebhook(body) {
 
     let aiReply;
     try {
-        aiReply = await callClaude(`${config.prompt}\n${HARD_RULES}`, history);
+        aiReply = await callClaude(`${config.prompt}\n${HARD_RULES}\n${bookingRules(slots, config)}`, history);
         console.log("Claude reply:", aiReply);
     } catch (error) {
         console.error("Claude failed, sending fallback text:", error.message);
         aiReply = isMissedCall ? MISSED_CALL_FALLBACK : FALLBACK_REPLY;
     }
+
+    const isUrgent = aiReply.includes("##URGENT##");
+    const isBookingRequest = aiReply.includes("##BOOKING##");
+    const bookMatch = aiReply.match(/##BOOK\|([^#]+)##/);
+
+    if (bookMatch && isUrgent && !config.urgentAutoBook) {
+        console.log("Urgent booking blocked: owner decides");
+        aiReply = "I've marked this URGENT and sent it straight to the owner. Expect a call in the next few minutes.";
+    } else if (bookMatch) {
+        const [startTime, service, name, address, onsite] = bookMatch[1].split("|").map(s => (s || "").trim());
+        const booking = { startTime, service, name, address, onsite };
+        console.log("Booking request:", booking);
+
+        if (!slots.includes(startTime) || !address) {
+            console.error("Booking rejected: time not open or no address");
+            aiReply = "Sorry, that time just filled up. Here's what's still open, or I can have the owner text you to lock in a time.";
+            await addTag(config.apiToken, contactId, "booking-request");
+        } else if (await bookAppointment(config.apiToken, config, locationId, contactId, booking)) {
+            aiReply = `You're booked for ${fmtSlot(startTime)} at ${address}. Need to schedule anything at another address?`;
+            await addTag(config.apiToken, contactId, "booked");
+        } else {
+            aiReply = "Sorry, I couldn't lock that in. I've sent your details to the owner and they'll text or call you shortly to confirm.";
+            await addTag(config.apiToken, contactId, "booking-request");
+        }
+    }
+
+    aiReply = aiReply.replace(/##[^#]*##/g, "").trim();
+
+    if (isUrgent) await addTag(config.apiToken, contactId, "urgent");
+    if (isBookingRequest) await addTag(config.apiToken, contactId, "booking-request");
 
     addToHistory(key, 'assistant', aiReply);
 
