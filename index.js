@@ -62,15 +62,26 @@ setInterval(() => {
 }, 10 * 60 * 1000).unref();
 
 // ---------------- Config ----------------
-const getLocationConfig = (locationId) => {
+function getLocationConfig(locationId) {
+    // 1) One variable per client: CLIENT_<locationId>
+    const own = process.env[`CLIENT_${locationId}`];
+    if (own) {
+        try {
+            return JSON.parse(own);
+        } catch (e) {
+            console.error(`Bad JSON in CLIENT_${locationId}:`, e.message);
+            return null;
+        }
+    }
+    // 2) Fallback: old LOCATION_KEYS
     try {
-        const keys = JSON.parse(process.env.LOCATION_KEYS || '{}');
-        return keys[locationId] || null;
+        const all = JSON.parse(process.env.LOCATION_KEYS || "{}");
+        return all[locationId] || null;
     } catch (e) {
-        console.error("Failed to parse LOCATION_KEYS:", e);
+        console.error("Failed to parse LOCATION_KEYS:", e.message);
         return null;
     }
-};
+}
 
 // ---------------- Claude ----------------
 async function callClaude(systemPrompt, messages) {
