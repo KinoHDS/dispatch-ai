@@ -148,9 +148,15 @@ function isOptOut(msg = "") {
     return false;
 }
 
-const OPT_OUT_REPLY = "You've been unsubscribed and won't receive more messages.";
+function isOptIn(msg = "") {
+    const t = String(msg).trim().toLowerCase().replace(/[^\w\s]/g, "");
+    return ["start", "unstop", "subscribe"].includes(t);
+}
 
-async function markDND(apiToken, contactId) {
+const OPT_OUT_REPLY = "You've been unsubscribed and won't receive more messages. Reply START to resubscribe.";
+const OPT_IN_REPLY = "You're resubscribed. How can we help you today? Reply STOP to unsubscribe.";
+
+async function markDND(apiToken, contactId, on = true) {
     try {
         const r = await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
             method: "PUT",
@@ -159,11 +165,11 @@ async function markDND(apiToken, contactId) {
                 Version: "2021-07-28",
                 "Content-Type": "application/json",
             },
-            body: JSON.stringify({ dnd: true }),
+            body: JSON.stringify({ dnd: on }),
         });
-        console.log("DND set:", contactId, r.status);
+        console.log(`DND ${on ? "on" : "off"}:`, contactId, r.status);
     } catch (err) {
-        console.error("DND failed:", err.message);
+        console.error("DND update failed:", err.message);
     }
 }
 
@@ -194,11 +200,19 @@ async function handleWebhook(body) {
         return;
     }
 
-    // Opt-out: confirm once, set DND, never reach Claude
+    // Opt back in
+    if (!isMissedCall && isOptIn(message)) {
+        console.log("Opt-in from", contactId);
+        await markDND(config.apiToken, contactId, false);
+        await sendGHLMessage(config.apiToken, contactId, OPT_IN_REPLY);
+        return;
+    }
+
+    // Opt out
     if (!isMissedCall && isOptOut(message)) {
         console.log("Opt-out from", contactId, ":", message);
         await sendGHLMessage(config.apiToken, contactId, OPT_OUT_REPLY);
-        await markDND(config.apiToken, contactId);
+        await markDND(config.apiToken, contactId, true);
         return;
     }
 
