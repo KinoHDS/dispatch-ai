@@ -278,7 +278,11 @@ Add ##URGENT## at the very end of every reply about an emergency.
 If they mention a gas smell, carbon monoxide alarm, or fire: FIRST tell them to leave the building and call 911 or the gas company, then add ##URGENT##.
 Never show ## tags in normal conversation; only at the very end.`;
 }
-
+//-------------------Emergency Text---------------
+function isEmergencyText(msg = "") {
+    const t = String(msg).toLowerCase();
+    return /\b(burst|flood(ed|ing)?|leak(ing)?|no heat|heat (is )?(out|off|not working|stopped)|furnace (is )?(out|dead|not working|stopped)|no hot water|sewage|backed up|backup|sparks?|smoke|gas smell|smell gas|carbon monoxide|co alarm|fire|plowed in|snowed in|can'?t get out|emergency|urgent|asap)\b/.test(t);
+}
 // ---------------- Webhook ----------------
 async function handleWebhook(body) {
     const payload = body.customData || {};
@@ -343,8 +347,7 @@ async function handleWebhook(body) {
         aiReply = isMissedCall ? MISSED_CALL_FALLBACK : FALLBACK_REPLY;
     }
 
-    const isUrgent = aiReply.includes("##URGENT##");
-    const isBookingRequest = aiReply.includes("##BOOKING##");
+    const isUrgent = aiReply.includes("##URGENT##") || (!isMissedCall && isEmergencyText(message));    const isBookingRequest = aiReply.includes("##BOOKING##");
     const bookMatch = aiReply.match(/##BOOK\|([^#]+)##/);
 
     if (bookMatch && isUrgent && !config.urgentAutoBook) {
